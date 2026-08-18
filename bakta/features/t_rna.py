@@ -1,13 +1,17 @@
 import logging
 import subprocess as sp
 
+from concurrent.futures import ThreadPoolExecutor
+
 from collections import OrderedDict
 from pathlib import Path
+from typing import Sequence
 
 from Bio import SeqIO
 
 import bakta.config as cfg
 import bakta.constants as bc
+import bakta.io.fasta as fasta
 import bakta.so as so
 import bakta.utils as bu
 
@@ -42,21 +46,24 @@ AMINO_ACID_DICT = {
 }
 
 
-def predict_t_rnas(data: dict, sequences_path: Path):
-    """Search for tRNA sequences."""
+def split_sequences(sequences: Sequence[dict], no_chunks: int) -> Sequence[Sequence[dict]]:
+    """Split sequences into chunks of roughly equal size, keeping their order."""
+    target = sum([seq['length'] for seq in sequences]) / no_chunks
+    split, chunk, size = [], [], 0
+    for seq in sequences:
+        chunk.append(seq)
+        size += seq['length']
+        if(size >= target and len(split) < no_chunks - 1):
+            split.append(chunk)
+            chunk, size = [], 0
+    if(len(chunk) > 0):
+        split.append(chunk)
+    return split
 
-    txt_output_path = cfg.tmp_path.joinpath('trna.tsv')
-    fasta_output_path = cfg.tmp_path.joinpath('trna.fasta')
-    cmd = [
-        'tRNAscan-SE',
-        '-B',
-        '--output', str(txt_output_path),
-        '--fasta', str(fasta_output_path),
-        '--thread', str(cfg.threads),
-        str(sequences_path)
-    ]
-    log.debug('cmd=%s', cmd)
-    proc = sp.run(
+
+def run_trnascan(cmd: Sequence[str]):
+    """Run one tRNAscan-SE process."""
+    return sp.run(
         cmd,
         cwd=str(cfg.tmp_path),
         env=cfg.env,
@@ -64,10 +71,51 @@ def predict_t_rnas(data: dict, sequences_path: Path):
         stderr=sp.PIPE,
         universal_newlines=True
     )
-    if(proc.returncode != 0):
-        log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
-        log.warning('tRNAs failed! tRNAscan-SE-error-code=%d', proc.returncode)
-        raise Exception(f'tRNAscan-SE error! error code: {proc.returncode}')
+
+
+def concat(parts: Sequence[Path], path: Path, skip: int=0):
+    """Concatenate tool output files in order, keeping one copy of the header."""
+    with path.open('wt') as fh_out:
+        for i, part in enumerate(parts):
+            with part.open() as fh_in:
+                for j, line in enumerate(fh_in):
+                    if(i == 0 or j >= skip):
+                        fh_out.write(line)
+
+
+def predict_t_rnas(data: dict, sequences_path: Path):
+    """Search for tRNA sequences."""
+
+    txt_output_path = cfg.tmp_path.joinpath('trna.tsv')
+    fasta_output_path = cfg.tmp_path.joinpath('trna.fasta')
+    no_chunks = min(cfg.threads, len(data['sequences']))
+    chunks = split_sequences(data['sequences'], no_chunks)
+    cmds, txt_paths, fasta_paths = [], [], []
+    for i, chunk in enumerate(chunks):
+        txt_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.tsv'))
+        fasta_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.fasta'))
+        chunk_path = sequences_path
+        if(no_chunks > 1):
+            chunk_path = cfg.tmp_path.joinpath(f'trna.{i}.fna')
+            fasta.export_sequences(chunk, chunk_path)
+        cmds.append([
+            'tRNAscan-SE',
+            '-B',
+            '--output', str(txt_paths[i]),
+            '--fasta', str(fasta_paths[i]),
+            '--thread', '0',
+            str(chunk_path)
+        ])
+    log.debug('cmds=%s', cmds)
+    with ThreadPoolExecutor(max_workers=len(cmds)) as tpe:
+        procs = list(tpe.map(run_trnascan, cmds))
+    for proc in procs:
+        if(proc.returncode != 0):
+            log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
+            log.warning('tRNAs failed! tRNAscan-SE-error-code=%d', proc.returncode)
+            raise Exception(f'tRNAscan-SE error! error code: {proc.returncode}')
+    concat(txt_paths, txt_output_path, skip=3)
+    concat(fasta_paths, fasta_output_path)
 
     trnas = {}
     sequences = {seq['id']: seq for seq in data['sequences']}
