@@ -64,6 +64,7 @@ def predict_t_rnas(data: dict, sequences_path: Path):
     txt_output_path = cfg.tmp_path.joinpath('trna.tsv')
     fasta_output_path = cfg.tmp_path.joinpath('trna.fasta')
     no_chunks = min(cfg.threads, len(data['sequences']))
+    threads = cfg.threads if no_chunks == 1 else 0
     chunks = fasta.split_sequences(data['sequences'], no_chunks)
     cmds, txt_paths, fasta_paths = [], [], []
     for i, chunk in enumerate(chunks):
@@ -78,7 +79,7 @@ def predict_t_rnas(data: dict, sequences_path: Path):
             '-B',
             '--output', str(txt_paths[i]),
             '--fasta', str(fasta_paths[i]),
-            '--thread', '0',
+            '--thread', str(threads),
             str(chunk_path)
         ])
     log.debug('cmds=%s', cmds)
