@@ -189,7 +189,7 @@ def main():
     else:
         print('predict rRNAs...')
         log.debug('start rRNA prediction')
-        rrnas = r_rna.predict_r_rnas(data, sequences_path)
+        rrnas = r_rna.predict_r_rnas(data, chunk_paths)
         data['features'].extend(rrnas)
         print(f"\tfound: {len(rrnas)}")
 
