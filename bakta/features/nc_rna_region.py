@@ -1,11 +1,13 @@
 import logging
-import subprocess as sp
+from concurrent.futures import ThreadPoolExecutor
 
 from collections import OrderedDict
 from pathlib import Path
+from typing import Sequence
 
 import bakta.config as cfg
 import bakta.constants as bc
+import bakta.io.fasta as fasta
 import bakta.so as so
 import bakta.utils as bu
 
@@ -16,38 +18,39 @@ HIT_EVALUE = 1E-4
 log = logging.getLogger('NC_RNA_REGION')
 
 
-def predict_nc_rna_regions(data: dict, sequences_path: Path):
+def predict_nc_rna_regions(data: dict, chunk_paths: Sequence[Path]):
     """Search for non-coding RNA regions."""
 
     output_path = cfg.tmp_path.joinpath('ncrna-regions.tsv')
-    cmd = [
-        'cmscan',
-        '--noali',
-        '--cut_tc',
-        '-g',  # activate glocal mode
-        '--nohmmonly',  # strictly use CM models
-        '--rfam',
-        '--cpu', str(cfg.threads),
-        '--tblout', str(output_path)
-    ]
-    if(data['stats']['size'] >= 1000000):
-        cmd.append('-Z')
-        cmd.append(str(2 * data['stats']['size'] // 1000000))
-    cmd.append(str(cfg.db_path.joinpath('ncRNA-regions')))
-    cmd.append(str(sequences_path))
-    log.debug('cmd=%s', cmd)
-    proc = sp.run(
-        cmd,
-        cwd=str(cfg.tmp_path),
-        env=cfg.env,
-        stdout=sp.PIPE,
-        stderr=sp.PIPE,
-        universal_newlines=True
-    )
-    if(proc.returncode != 0):
-        log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
-        log.warning('ncRNA regions failed! cmscan-error-code=%d', proc.returncode)
-        raise Exception(f'cmscan error! error code: {proc.returncode}')
+    threads = cfg.threads if len(chunk_paths) == 1 else 0
+    cmds, tsv_paths = [], []
+    for i, chunk_path in enumerate(chunk_paths):
+        tsv_paths.append(cfg.tmp_path.joinpath(f'ncrna-regions.{i}.tsv'))
+        cmd = [
+            'cmscan',
+            '--noali',
+            '--cut_tc',
+            '-g',  # activate glocal mode
+            '--nohmmonly',  # strictly use CM models
+            '--rfam',
+            '--cpu', str(threads),
+            '--tblout', str(tsv_paths[i])
+        ]
+        if(data['stats']['size'] >= 1000000):
+            cmd.append('-Z')
+            cmd.append(str(2 * data['stats']['size'] // 1000000))
+        cmd.append(str(cfg.db_path.joinpath('ncRNA-regions')))
+        cmd.append(str(chunk_path))
+        cmds.append(cmd)
+    log.debug('cmds=%s', cmds)
+    with ThreadPoolExecutor(max_workers=len(cmds)) as tpe:
+        procs = list(tpe.map(bu.run_tool, cmds))
+    for proc in procs:
+        if(proc.returncode != 0):
+            log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
+            log.warning('ncRNA regions failed! cmscan-error-code=%d', proc.returncode)
+            raise Exception(f'cmscan error! error code: {proc.returncode}')
+    fasta.concat(tsv_paths, output_path)
 
     rfam2go = {}
     rfam2go_path = cfg.db_path.joinpath('rfam-go.tsv')

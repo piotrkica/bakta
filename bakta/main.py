@@ -213,7 +213,7 @@ def main():
     else:
         print('predict ncRNA regions...')
         log.debug('start ncRNA region prediction')
-        ncrna_regions = nc_rna_region.predict_nc_rna_regions(data, sequences_path)
+        ncrna_regions = nc_rna_region.predict_nc_rna_regions(data, chunk_paths)
         data['features'].extend(ncrna_regions)
         print(f"\tfound: {len(ncrna_regions)}")
 
