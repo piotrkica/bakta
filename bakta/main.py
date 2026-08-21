@@ -201,7 +201,7 @@ def main():
     else:
         print('predict ncRNAs...')
         log.debug('start ncRNA prediction')
-        ncrnas = nc_rna.predict_nc_rnas(data, sequences_path)
+        ncrnas = nc_rna.predict_nc_rnas(data, chunk_paths)
         data['features'].extend(ncrnas)
         print(f"\tfound: {len(ncrnas)}")
 
