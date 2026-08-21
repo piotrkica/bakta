@@ -45,22 +45,16 @@ AMINO_ACID_DICT = {
 }
 
 
-def predict_t_rnas(data: dict, sequences_path: Path):
+def predict_t_rnas(data: dict, chunk_paths: Sequence[Path]):
     """Search for tRNA sequences."""
 
     txt_output_path = cfg.tmp_path.joinpath('trna.tsv')
     fasta_output_path = cfg.tmp_path.joinpath('trna.fasta')
-    no_chunks = min(cfg.threads, len(data['sequences']))
-    threads = cfg.threads if no_chunks == 1 else 0
-    chunks = fasta.split_sequences(data['sequences'], no_chunks)
+    threads = cfg.threads if len(chunk_paths) == 1 else 0
     cmds, tsv_paths, fasta_paths = [], [], []
-    for i, chunk in enumerate(chunks):
+    for i, chunk_path in enumerate(chunk_paths):
         tsv_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.tsv'))
         fasta_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.fasta'))
-        chunk_path = sequences_path
-        if(no_chunks > 1):
-            chunk_path = cfg.tmp_path.joinpath(f'trna.{i}.fna')
-            fasta.export_sequences(chunk, chunk_path)
         cmds.append([
             'tRNAscan-SE',
             '-B',

@@ -91,6 +91,18 @@ def split_sequences(sequences: Sequence[dict], no_chunks: int) -> Sequence[Seque
     return split
 
 
+def write_chunks(sequences: Sequence[dict], no_chunks: int, sequences_path: Path) -> Sequence[Path]:
+    """Split sequences into no_chunks fastas once, for all predictors to reuse."""
+    if(no_chunks <= 1):
+        return [sequences_path]
+    chunk_paths = []
+    for i, chunk in enumerate(split_sequences(sequences, no_chunks)):
+        chunk_path = sequences_path.parent.joinpath(f'chunk.{i}.fna')
+        export_sequences(chunk, chunk_path)
+        chunk_paths.append(chunk_path)
+    return chunk_paths
+
+
 def concat(parts: Sequence[Path], path: Path, skip: int=0):
     """Concatenate tool output files in order, keeping one copy of the header."""
     with path.open('wt') as fh_out:

@@ -154,6 +154,9 @@ def main():
         data['genome']['plasmid'] = cfg.plasmid
     print('\nStart annotation...')
 
+    no_chunks = min(cfg.threads, len(sequences))
+    chunk_paths = fasta.write_chunks(sequences, no_chunks, sequences_path)
+
     ############################################################################
     # tRNA prediction
     ############################################################################
@@ -162,7 +165,7 @@ def main():
     else:
         print('predict tRNAs...')
         log.debug('start tRNA prediction')
-        trnas = t_rna.predict_t_rnas(data, sequences_path)
+        trnas = t_rna.predict_t_rnas(data, chunk_paths)
         data['features'].extend(trnas)
         print(f"\tfound: {len(trnas)}")
 
