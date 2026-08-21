@@ -1,11 +1,13 @@
 import logging
-import subprocess as sp
 
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from pathlib import Path
+from typing import Sequence
 
 import bakta.config as cfg
 import bakta.constants as bc
+import bakta.io.fasta as fasta
 import bakta.so as so
 import bakta.utils as bu
 
@@ -13,36 +15,36 @@ import bakta.utils as bu
 log = logging.getLogger('TM_RNA')
 
 
-def predict_tm_rnas(data: dict, sequences_path: Path):
+def predict_tm_rnas(data: dict, chunk_paths: Sequence[Path]):
     """Search for tmRNA sequences."""
 
     txt_output_path = cfg.tmp_path.joinpath('tmrna.tsv')
-    cmd = [
-        'aragorn',
-        '-m',  # detect tmRNAs
-        f'-gc{cfg.translation_table}',
-        '-w',  # batch mode
-        '-o', str(txt_output_path),
-        str(sequences_path)
-    ]
-    if(cfg.complete):
-        cmd.append('-c')  # complete circular sequence(s)
-    else:
-        cmd.append('-l')  # linear sequence(s)
+    cmds, tsv_paths = [], []
+    for i, chunk_path in enumerate(chunk_paths):
+        tsv_paths.append(cfg.tmp_path.joinpath(f'tmrna.{i}.tsv'))
+        cmd = [
+            'aragorn',
+            '-m',  # detect tmRNAs
+            f'-gc{cfg.translation_table}',
+            '-w',  # batch mode
+            '-o', str(tsv_paths[i]),
+            str(chunk_path)
+        ]
+        if(cfg.complete):
+            cmd.append('-c')  # complete circular sequence(s)
+        else:
+            cmd.append('-l')  # linear sequence(s)
+        cmds.append(cmd)
 
-    log.debug('cmd=%s', cmd)
-    proc = sp.run(
-        cmd,
-        cwd=str(cfg.tmp_path),
-        env=cfg.env,
-        stdout=sp.PIPE,
-        stderr=sp.PIPE,
-        universal_newlines=True
-    )
-    if(proc.returncode != 0):
-        log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
-        log.warning('tmRNAs failed! aragorn-error-code=%d', proc.returncode)
-        raise Exception(f'aragorn error! error code: {proc.returncode}')
+    log.debug('cmds=%s', cmds)
+    with ThreadPoolExecutor(max_workers=len(cmds)) as tpe:
+        procs = list(tpe.map(bu.run_tool, cmds))
+    for proc in procs:
+        if(proc.returncode != 0):
+            log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
+            log.warning('tmRNAs failed! aragorn-error-code=%d', proc.returncode)
+            raise Exception(f'aragorn error! error code: {proc.returncode}')
+    fasta.concat(tsv_paths, txt_output_path)
 
     tmrnas = []
     sequences = {seq['id']: seq for seq in data['sequences']}

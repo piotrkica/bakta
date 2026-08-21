@@ -177,7 +177,7 @@ def main():
     else:
         print('predict tmRNAs...')
         log.debug('start tmRNA prediction')
-        tmrnas = tm_rna.predict_tm_rnas(data, sequences_path)
+        tmrnas = tm_rna.predict_tm_rnas(data, chunk_paths)
         data['features'].extend(tmrnas)
         print(f"\tfound: {len(tmrnas)}")
 
