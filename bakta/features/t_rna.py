@@ -1,5 +1,4 @@
 import logging
-import subprocess as sp
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -46,18 +45,6 @@ AMINO_ACID_DICT = {
 }
 
 
-def run_trnascan(cmd: Sequence[str]):
-    """Run one tRNAscan-SE process."""
-    return sp.run(
-        cmd,
-        cwd=str(cfg.tmp_path),
-        env=cfg.env,
-        stdout=sp.PIPE,
-        stderr=sp.PIPE,
-        universal_newlines=True
-    )
-
-
 def predict_t_rnas(data: dict, sequences_path: Path):
     """Search for tRNA sequences."""
 
@@ -66,9 +53,9 @@ def predict_t_rnas(data: dict, sequences_path: Path):
     no_chunks = min(cfg.threads, len(data['sequences']))
     threads = cfg.threads if no_chunks == 1 else 0
     chunks = fasta.split_sequences(data['sequences'], no_chunks)
-    cmds, txt_paths, fasta_paths = [], [], []
+    cmds, tsv_paths, fasta_paths = [], [], []
     for i, chunk in enumerate(chunks):
-        txt_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.tsv'))
+        tsv_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.tsv'))
         fasta_paths.append(cfg.tmp_path.joinpath(f'trna.{i}.fasta'))
         chunk_path = sequences_path
         if(no_chunks > 1):
@@ -77,20 +64,20 @@ def predict_t_rnas(data: dict, sequences_path: Path):
         cmds.append([
             'tRNAscan-SE',
             '-B',
-            '--output', str(txt_paths[i]),
+            '--output', str(tsv_paths[i]),
             '--fasta', str(fasta_paths[i]),
             '--thread', str(threads),
             str(chunk_path)
         ])
     log.debug('cmds=%s', cmds)
     with ThreadPoolExecutor(max_workers=len(cmds)) as tpe:
-        procs = list(tpe.map(run_trnascan, cmds))
+        procs = list(tpe.map(bu.run_tool, cmds))
     for proc in procs:
         if(proc.returncode != 0):
             log.debug('stdout=\'%s\', stderr=\'%s\'', proc.stdout, proc.stderr)
             log.warning('tRNAs failed! tRNAscan-SE-error-code=%d', proc.returncode)
             raise Exception(f'tRNAscan-SE error! error code: {proc.returncode}')
-    fasta.concat(txt_paths, txt_output_path, skip=3)
+    fasta.concat(tsv_paths, txt_output_path, skip=3)
     fasta.concat(fasta_paths, fasta_output_path)
 
     trnas = {}
